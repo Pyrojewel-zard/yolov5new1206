@@ -1,3 +1,4 @@
+import imp
 import torch
 import numpy as np
 from models.experimental import attempt_load
@@ -7,6 +8,38 @@ import cv2
 from random import randint
 from processor import change
 from PIL import Image
+from io import BytesIO
+import base64
+import requests
+
+def image_to_base64(img):
+    img_str = cv2.imencode('.jpg', img)[1].tostring()  # 将图片编码成流数据，放到内存缓存中，然后转化成string格式
+    return base64.b64encode(img_str) # 编码成base64
+
+def ocr(img):
+    image=image_to_base64(img)
+    request_url = "https://aip.baidubce.com/rest/2.0/ocr/v1/accurate"
+    params = {"image":image}
+    access_token = '24.05905e01e7e5d7a6e96b6a4a11fb36a3.2592000.1649738086.282335-25756395'
+    request_url = request_url + "?access_token=" + access_token
+    headers = {'content-type': 'application/x-www-form-urlencoded'}
+    response = requests.post(request_url, data=params, headers=headers)
+    a=response.json()
+    print(response.json())
+    for i in range(a['words_result_num']):
+        print(str(i)+':',end="")
+        print(a['words_result'][i]['location'] )
+        left=a['words_result'][i]['location']['left']
+        top=a['words_result'][i]['location']['top']
+        width=a['words_result'][i]['location']['width']
+        height=a['words_result'][i]['location']['height']
+        x, y = left,top
+        w,h=width,height
+        ROI = img[y:y+h, x:x+w]
+        blur = cv2.GaussianBlur(ROI, (51,51), 10) 
+        img[y:y+h, x:x+w] = blur
+    return img
+
 class Detector(object):
 
     def __init__(self):
@@ -60,11 +93,6 @@ class Detector(object):
             cv2.rectangle(image, c1, c2, color, -1, cv2.LINE_AA)  # filled
             cv2.putText(image, '{} ID-{:.2f}'.format(cls_id, conf), (c1[0], c1[1] - 2), 0, tl / 3,
                         [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
-            x, y = x1,y1
-            w,h=abs(x1-x2),abs(y1-y2)
-            ROI = image[y:y+h, x:x+w]
-            blur = cv2.GaussianBlur(ROI, (51,51), 5) 
-            image[y:y+h, x:x+w] = blur
         return image
     def detect(self, im):
 
@@ -92,6 +120,6 @@ class Detector(object):
                     key = '{}-{:02}'.format(lbl, count)
                     image_info[key] = ['{}×{}'.format(
                         x2-x1, y2-y1), np.round(float(conf), 3)]
-
+        im = ocr(im)
         im = self.plot_bboxes(im, pred_boxes)
         return im, image_info
